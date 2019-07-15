@@ -204,7 +204,7 @@ configuration:
     allow_task_creation:
         type: bool
         description: Controls whether new tasks can be created from the app.
-        default_value: True
+        default_value: False
 
     file_browser_tabs:
         type: list
@@ -215,7 +215,7 @@ configuration:
         allows_empty: False
         values:
           type: str
-        default_value: ['All', 'Working', 'Publishes']
+        default_value: ['Working', 'Publishes', 'All']
 
     # Save specific options
     #
