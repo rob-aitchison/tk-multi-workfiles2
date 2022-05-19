@@ -1,4 +1,4 @@
-# Copyright (c) 2015 Shotgun Software Inc.
+# Copyright (c) 2020 Shotgun Software Inc.
 #
 # CONFIDENTIAL AND PROPRIETARY
 #
@@ -7,9 +7,6 @@
 # By accessing, using, copying or modifying this work you indicate your
 # agreement to the Shotgun Pipeline Toolkit Source Code License. All rights
 # not expressly granted therein are reserved by Shotgun Software Inc.
-
-import os
-from Py3dsMax import mxs
 
 import sgtk
 
@@ -22,7 +19,16 @@ class SceneOperation(HookClass):
     current scene
     """
 
-    def execute(self, operation, file_path, context, parent_action, file_version, read_only, **kwargs):
+    def execute(
+        self,
+        operation,
+        file_path,
+        context,
+        parent_action,
+        file_version,
+        read_only,
+        **kwargs
+    ):
         """
         Main hook entry point
 
@@ -57,31 +63,6 @@ class SceneOperation(HookClass):
                                 all others     - None
         """
 
-        if operation == "current_path":
-            # return the current scene path
-            if not mxs.maxFileName:
-                return ""
-            return os.path.join(mxs.maxFilePath, mxs.maxFileName)
-        elif operation == "open":
-            # open the specified scene
-            mxs.loadMaxFile(file_path)
-        elif operation == "save":
-            # save the current scene:
-            file_path = os.path.join(mxs.maxFilePath, mxs.maxFileName)
-            mxs.saveMaxFile(file_path)
-        elif operation == "save_as":
-            # save the scene as file_path:
-            mxs.saveMaxFile(file_path)
-        elif operation == "reset":
-            """
-            Reset the scene to an empty state
-            """
-            # use the standard Max mechanism to check
-            # for and save the file if required:
-            if not mxs.checkForSave():
-                return False
-
-            # now reset the scene:
-            mxs.resetMAXFile(mxs.pyhelper.namify("noPrompt"))
-
-            return True
+        # Mari doesn't have any scene operations, since it only works with the context change mode.
+        # However workfiles does require that it can find the hook, so this is a placeholder hook.
+        pass

@@ -26,15 +26,18 @@ def dbg_info(func):
     Note that the list of QObjects is misleading if the QApplication is set to close when the last
     window is closed and the dialog is the last window.
     """
+
     def wrapper(*args, **kwargs):
-        """
-        """
+        """ """
         # grab the pre-run memory info:
         num_objects_before = len(gc.get_objects())
         bytes_before = 0
-        if sys.platform == "Darwin":
+        if sgtk.util.is_macos():
             import resource
-            bytes_before = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024.0 / 1024.0
+
+            bytes_before = (
+                resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024.0 / 1024.0
+            )
 
         # run the function:
         res = func(*args, **kwargs)
@@ -47,20 +50,25 @@ def dbg_info(func):
         # cleanup and grab the post-run memory info:
         gc.collect()
         bytes_after = 0
-        if sys.platform == "Darwin":
-            bytes_after = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024.0 / 1024.0
+        if sgtk.util.is_macos():
+            bytes_after = (
+                resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024.0 / 1024.0
+            )
         num_objects_after = len(gc.get_objects())
 
         # and report any difference in memory usage:
         bytes_diff = bytes_after - bytes_before
         obj_diff = num_objects_after - num_objects_before
-        msg = ("Memory before: %0.2fMb, current: %0.2fMb, leaked: %0.2fMb (%d new Python objects)"
-               % (bytes_before, bytes_after, bytes_diff, obj_diff))
+        msg = (
+            "Memory before: %0.2fMb, current: %0.2fMb, leaked: %0.2fMb (%d new Python objects)"
+            % (bytes_before, bytes_after, bytes_diff, obj_diff)
+        )
         app = sgtk.platform.current_bundle()
         app.log_debug(msg)
 
         # return the result:
         return res
+
     return wrapper
 
 
@@ -69,7 +77,7 @@ class WorkFiles(object):
     Main entry point for all commands in the app.
     """
 
-    def __init__(self):
+    def __init__(self, use_modal_dialog=False):
         """
         Constructor.
         """
@@ -82,28 +90,42 @@ class WorkFiles(object):
         # with memory leak-detection code.
         if app.use_debug_dialog:
             self._dialog_launcher = dbg_info(app.engine.show_modal)
+        elif use_modal_dialog:
+            self._dialog_launcher = app.engine.show_modal
         else:
             self._dialog_launcher = app.engine.show_dialog
 
     @staticmethod
-    def show_file_open_dlg():
+    def show_file_open_dlg(use_modal_dialog=False):
         """
         Show the file open dialog
         """
-        handler = WorkFiles()
+        handler = WorkFiles(use_modal_dialog)
         from .file_open_form import FileOpenForm
+
         handler._show_file_dlg("File Open", FileOpenForm)
 
     @staticmethod
-    def show_file_save_dlg():
+    def show_context_change_dlg(use_modal_dialog=False):
+        """
+        Show the file open dialog
+        """
+        handler = WorkFiles(use_modal_dialog)
+        from .context_change_form import ContextChangeForm
+
+        handler._show_file_dlg("Change Context", ContextChangeForm)
+
+    @staticmethod
+    def show_file_save_dlg(use_modal_dialog=False):
         """
         Show the file save dialog
         """
-        handler = WorkFiles()
+        handler = WorkFiles(use_modal_dialog)
         from .file_save_form import FileSaveForm
+
         handler._show_file_dlg("File Save", FileSaveForm)
 
-    def _show_file_dlg(self, dlg_name, form):
+    def _show_file_dlg(self, dlg_name, form, *args):
         """
         Shows the file dialog modally or not depending on the current DCC and settings.
 
@@ -112,6 +134,6 @@ class WorkFiles(object):
         """
         app = sgtk.platform.current_bundle()
         try:
-            self._dialog_launcher(dlg_name, app, form)
+            self._dialog_launcher(dlg_name, app, form, *args)
         except:
             app.log_exception("Failed to create %s dialog!" % dlg_name)

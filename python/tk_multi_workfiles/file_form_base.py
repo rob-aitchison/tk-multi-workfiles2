@@ -20,10 +20,14 @@ from itertools import chain
 import sgtk
 from sgtk.platform.qt import QtCore, QtGui
 
-task_manager = sgtk.platform.import_framework("tk-framework-shotgunutils", "task_manager")
+task_manager = sgtk.platform.import_framework(
+    "tk-framework-shotgunutils", "task_manager"
+)
 BackgroundTaskManager = task_manager.BackgroundTaskManager
 
-shotgun_globals = sgtk.platform.import_framework("tk-framework-shotgunutils", "shotgun_globals")
+shotgun_globals = sgtk.platform.import_framework(
+    "tk-framework-shotgunutils", "shotgun_globals"
+)
 
 from .entity_models import ShotgunExtendedEntityModel, ShotgunDeferredEntityModel
 from .file_model import FileModel
@@ -32,6 +36,7 @@ from .scene_operation import get_current_path, SAVE_FILE_AS_ACTION
 from .file_item import FileItem
 from .work_area import WorkArea
 from .actions.new_task_action import NewTaskAction
+from .actions.file_action import FileAction
 from .user_cache import g_user_cache
 from .util import monitor_qobject_lifetime, resolve_filters, get_sg_entity_name_field
 from .step_list_filter import get_saved_step_filter
@@ -42,6 +47,7 @@ class FileFormBase(QtGui.QWidget):
     Implementation of file form base class.  Contains initialisation and functionality
     used by both the File Open & File Save dialogs.
     """
+
     def __init__(self, parent):
         """
         Construction
@@ -51,6 +57,8 @@ class FileFormBase(QtGui.QWidget):
         QtGui.QWidget.__init__(self, parent)
 
         self._current_file = None
+        self._navigating = False
+        self._exit_code = QtGui.QDialog.Rejected
 
         # create a single instance of the task manager that manages all
         # asynchrounous work/tasks.
@@ -72,11 +80,29 @@ class FileFormBase(QtGui.QWidget):
         self.addAction(refresh_action)
 
         # on OSX, also add support for F5 (the default for OSX is Cmd+R)
-        if sys.platform == "darwin":
+        if sgtk.util.is_macos():
             osx_f5_refresh_action = QtGui.QAction("Refresh (F5)", self)
             osx_f5_refresh_action.setShortcut(QtGui.QKeySequence(QtCore.Qt.Key_F5))
             osx_f5_refresh_action.triggered.connect(self._on_refresh_triggered)
             self.addAction(osx_f5_refresh_action)
+
+    def _do_init(self):
+        """ """
+
+        # set up the UI
+        self._ui = self.init_ui_file()
+        self._ui.setupUi(self)
+
+        # hook up signals on controls:
+        self._ui.cancel_btn.clicked.connect(self._on_cancel)
+        self._ui.browser.create_new_task.connect(self._on_create_new_task)
+        self._ui.browser.work_area_changed.connect(self._on_browser_work_area_changed)
+        self._ui.browser.step_filter_changed.connect(self._apply_step_filtering)
+        self._ui.nav.navigate.connect(self._on_navigate)
+        self._ui.nav.home_clicked.connect(self._on_navigate_home)
+
+    def init_ui_file(self):
+        raise NotImplementedError
 
     def closeEvent(self, event):
         """
@@ -85,6 +111,9 @@ class FileFormBase(QtGui.QWidget):
 
         :param event:   Close event
         """
+
+        # clean up the browser:
+        self._ui.browser.shut_down()
 
         # clear up the various data models:
         if self._file_model:
@@ -126,12 +155,14 @@ class FileFormBase(QtGui.QWidget):
         my_tasks_filters = app.get_setting("my_tasks_filters")
 
         # create the model:
-        model = MyTasksModel(app.context.project,
-                             g_user_cache.current_user,
-                             extra_display_fields,
-                             my_tasks_filters,
-                             parent=self,
-                             bg_task_manager=self._bg_task_manager)
+        model = MyTasksModel(
+            app.context.project,
+            g_user_cache.current_user,
+            extra_display_fields,
+            my_tasks_filters,
+            parent=self,
+            bg_task_manager=self._bg_task_manager,
+        )
         monitor_qobject_lifetime(model, "My Tasks Model")
         model.async_refresh()
         return model
@@ -161,7 +192,7 @@ class FileFormBase(QtGui.QWidget):
             sub_query = ent.get("sub_hierarchy", [])
             deferred_query = None
             if sub_query:
-                step_filter_on = entity_type # Ensure this is not wrongly set
+                step_filter_on = entity_type  # Ensure this is not wrongly set
                 # The target entity type for the sub query.
                 sub_entity_type = sub_query.get("entity_type", "Task")
                 # Optional filters for the sub query.
@@ -182,7 +213,8 @@ class FileFormBase(QtGui.QWidget):
                 app = sgtk.platform.current_bundle()
                 app.log_error(
                     "No hierarchy found for entity type '%s' - at least one level of "
-                    "hierarchy must be specified in the app configuration.  Skipping!" % entity_type
+                    "hierarchy must be specified in the app configuration.  Skipping!"
+                    % entity_type
                 )
                 continue
 
@@ -221,7 +253,7 @@ class FileFormBase(QtGui.QWidget):
                     fields,
                     deferred_query=deferred_query,
                     parent=self,
-                    bg_task_manager=self._bg_task_manager
+                    bg_task_manager=self._bg_task_manager,
                 )
             else:
                 model = ShotgunExtendedEntityModel(
@@ -230,7 +262,7 @@ class FileFormBase(QtGui.QWidget):
                     hierarchy,
                     fields,
                     parent=self,
-                    bg_task_manager=self._bg_task_manager
+                    bg_task_manager=self._bg_task_manager,
                 )
             monitor_qobject_lifetime(model, "Entity Model")
             entity_models.append((caption, step_filter_on, model))
@@ -276,6 +308,61 @@ class FileFormBase(QtGui.QWidget):
         app.log_debug("Path cache up to date!")
         self._refresh_all_async()
 
+    def _on_browser_work_area_changed(self, entity, breadcrumbs):
+        """
+        Slot triggered whenever the work area is changed in the browser.
+        """
+        env_details = None
+        if entity:
+            # (AD) - we need to build a context and construct the environment details
+            # instance for it but this may be slow enough that we should cache it!
+            # Keep an eye on it and consider threading if it's noticeably slow!
+            app = sgtk.platform.current_bundle()
+            context = app.sgtk.context_from_entity_dictionary(entity)
+            try:
+                env_details = WorkArea(context)
+            except sgtk.TankError:
+                # We can ignore the error reporting here. The browser is already
+                # updating it's various file views and they will display the same
+                # error. Which is good, because file open dialog doesn't have a
+                # widget dedicated to error reporting.
+                env_details = None
+
+        if not self._navigating:
+            destination_label = breadcrumbs[-1].label if breadcrumbs else "..."
+            self._ui.nav.add_destination(destination_label, breadcrumbs)
+        self._ui.breadcrumbs.set(breadcrumbs)
+
+        return env_details
+
+    def _on_navigate(self, breadcrumb_trail):
+        """ """
+        if not breadcrumb_trail:
+            return
+
+        # awesome, just navigate to the breadcrumbs:
+        self._ui.breadcrumbs.set(breadcrumb_trail)
+        self._navigating = True
+        try:
+            self._ui.browser.navigate_to(breadcrumb_trail)
+        finally:
+            self._navigating = False
+
+    def _on_navigate_home(self):
+        """
+        Navigate to the current work area
+        """
+        # navigate to the current work area in the browser:
+        app = sgtk.platform.current_bundle()
+        self._ui.browser.select_work_area(app.context)
+
+    def _on_cancel(self):
+        """
+        Called when the cancel button is clicked
+        """
+        self._exit_code = QtGui.QDialog.Rejected
+        self.close()
+
     def _refresh_all_async(self):
         """
         Asynchrounously refresh all models.
@@ -299,13 +386,15 @@ class FileFormBase(QtGui.QWidget):
             # build environment details for this context:
             try:
                 work_area = WorkArea(app.context)
-            except Exception, e:
+            except Exception as e:
                 return None
 
             # get the current file path:
             try:
-                current_path = get_current_path(app, SAVE_FILE_AS_ACTION, work_area.context)
-            except Exception, e:
+                current_path = get_current_path(
+                    app, SAVE_FILE_AS_ACTION, work_area.context
+                )
+            except Exception as e:
                 return None
 
             self._current_file = self._fileitem_from_path(current_path, work_area)
@@ -335,12 +424,15 @@ class FileFormBase(QtGui.QWidget):
         # build fields dictionary and construct key:
         fields = work_area.context.as_template_fields(work_area.work_template)
 
-        base_template = work_area.publish_template if is_publish else work_area.work_template
+        base_template = (
+            work_area.publish_template if is_publish else work_area.work_template
+        )
         template_fields = base_template.get_fields(path)
-        fields = dict(chain(template_fields.iteritems(), fields.iteritems()))
+        fields = dict(chain(template_fields.items(), fields.items()))
 
-        file_key = FileItem.build_file_key(fields, work_area.work_template,
-                                           work_area.version_compare_ignore_fields)
+        file_key = FileItem.build_file_key(
+            fields, work_area.work_template, work_area.version_compare_ignore_fields
+        )
 
         # extract details from the fields:
         details = {}
@@ -349,13 +441,15 @@ class FileFormBase(QtGui.QWidget):
                 details[key_name] = fields[key_name]
 
         # build the file item (note that this will be a very minimal FileItem instance)!
-        file_item = FileItem(key = file_key,
-                             is_work_file = not is_publish,
-                             work_path = path if not is_publish else None,
-                             work_details = fields if not is_publish else None,
-                             is_published = is_publish,
-                             publish_path = path if is_publish else None,
-                             publish_details = fields if is_publish else None)
+        file_item = FileItem(
+            key=file_key,
+            is_work_file=not is_publish,
+            work_path=path if not is_publish else None,
+            work_details=fields if not is_publish else None,
+            is_published=is_publish,
+            publish_path=path if is_publish else None,
+            publish_details=fields if is_publish else None,
+        )
 
         return file_item
 
@@ -373,3 +467,34 @@ class FileFormBase(QtGui.QWidget):
         for _, _, model in self._entity_models:
             if model.supports_step_filtering:
                 model.update_filters(step_filter)
+
+    def _perform_action(self, action):
+        """ """
+        if not action:
+            return
+
+        # some debug:
+        app = sgtk.platform.current_bundle()
+        if isinstance(action, FileAction) and action.file:
+            app.log_debug(
+                "Performing action '%s' on file '%s, v%03d'"
+                % (action.label, action.file.name, action.file.version)
+            )
+        else:
+            app.log_debug("Performing action '%s'" % action.label)
+
+        # execute the action:
+        close_dialog = action.execute(self)
+
+        # if this is successful then close the form:
+        if close_dialog:
+            self._exit_code = QtGui.QDialog.Accepted
+            self.close()
+        else:
+            # refresh all models in case something changed as a result of
+            # the action (especially important with custom actions):
+            self._refresh_all_async()
+
+    @property
+    def exit_code(self):
+        return self._exit_code

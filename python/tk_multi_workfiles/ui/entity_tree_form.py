@@ -49,7 +49,7 @@ class Ui_EntityTreeForm(object):
 "        border-image: none;\n"
 "        image: url(:/tk-multi-workfiles2/tree_arrow_collapsed.png);\n"
 "}\n"
-" \n"
+"\n"
 "QTreeView::branch:open:has-children:!has-siblings,\n"
 "QTreeView::branch:open:has-children:has-siblings   {\n"
 "        border-image: none;\n"
@@ -70,6 +70,7 @@ class Ui_EntityTreeForm(object):
         EntityTreeForm.setWindowTitle(QtGui.QApplication.translate("EntityTreeForm", "Form", None, QtGui.QApplication.UnicodeUTF8))
         self.my_tasks_cb.setText(QtGui.QApplication.translate("EntityTreeForm", "My Tasks Only", None, QtGui.QApplication.UnicodeUTF8))
         self.new_task_btn.setText(QtGui.QApplication.translate("EntityTreeForm", "+ New Task", None, QtGui.QApplication.UnicodeUTF8))
+        self.search_ctrl.setAccessibleName(QtGui.QApplication.translate("EntityTreeForm", "Search Entity", None, QtGui.QApplication.UnicodeUTF8))
 
 from ..framework_qtwidgets import SearchWidget
 from . import resources_rc

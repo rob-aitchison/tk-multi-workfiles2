@@ -19,7 +19,6 @@ import sgtk
 
 
 class MultiWorkFiles(sgtk.platform.Application):
-
     def init_app(self):
         """
         Called as the application is being initialized
@@ -27,50 +26,71 @@ class MultiWorkFiles(sgtk.platform.Application):
         self._tk_multi_workfiles = self.import_module("tk_multi_workfiles")
         self.__is_pyside_unstable = None
 
-        if self.engine.name == "tk-mari":
-            # Mari doesn't have the concept of a current scene so this app shouldn't
-            # provide any commands!
+        if not self.engine.has_ui:
+            self.logger.debug(
+                "The engine reports that there is no UI. Workfiles2 will not continue initializing."
+            )
             return
 
-        # register the file open command
-        self.engine.register_command(
-            "File Open...",
-            self.show_file_open_dlg,
-            {
-                "short_name": "file_open",
+        if self.get_setting("show_change_context"):
+            # This will only show the context change dialog and not register the save of open dialogs.
+            self.engine.register_command(
+                "Change Context...",
+                self.show_context_change_dlg,
+                {
+                    "short_name": "change_context",
+                    # dark themed icon for engines that recognize this format
+                    "icons": {
+                        "dark": {
+                            "png": os.path.join(
+                                os.path.dirname(__file__),
+                                "resources",
+                                "file_open_menu_icon.png",
+                            )
+                        }
+                    },
+                },
+            )
+        if self.get_setting("show_file_open"):
+            # This show the open and save dialogs and not the context change dialog.
+            # register the file open command
+            self.engine.register_command(
+                "File Open...",
+                self.show_file_open_dlg,
+                {
+                    "short_name": "file_open",
+                    # dark themed icon for engines that recognize this format
+                    "icons": {
+                        "dark": {
+                            "png": os.path.join(
+                                os.path.dirname(__file__),
+                                "resources",
+                                "file_open_menu_icon.png",
+                            )
+                        }
+                    },
+                },
+            )
 
-                # dark themed icon for engines that recognize this format
-                "icons": {
-                    "dark": {
-                        "png": os.path.join(
-                            os.path.dirname(__file__),
-                            "resources",
-                            "file_open_menu_icon.png"
-                        )
-                    }
-                }
-            }
-        )
-
-        # register the file save command
-        self.engine.register_command(
-            "File Save...",
-            self.show_file_save_dlg,
-            {
-                "short_name": "file_save",
-
-                # dark themed icon for engines that recognize this format
-                "icons": {
-                    "dark": {
-                        "png": os.path.join(
-                            os.path.dirname(__file__),
-                            "resources",
-                            "file_save_menu_icon.png"
-                        )
-                    }
-                }
-            }
-        )
+        if self.get_setting("show_file_save"):
+            # register the file save command
+            self.engine.register_command(
+                "File Save...",
+                self.show_file_save_dlg,
+                {
+                    "short_name": "file_save",
+                    # dark themed icon for engines that recognize this format
+                    "icons": {
+                        "dark": {
+                            "png": os.path.join(
+                                os.path.dirname(__file__),
+                                "resources",
+                                "file_save_menu_icon.png",
+                            )
+                        }
+                    },
+                },
+            )
 
         # Process auto startup options - but only on certain supported platforms
         # because of the way QT inits and connects to different host applications
@@ -78,24 +98,27 @@ class MultiWorkFiles(sgtk.platform.Application):
         # the behaviour can be very different.
         #
         # currently, we have done QA on the following engines:
-        SUPPORTED_ENGINES = ["tk-nuke", "tk-maya", "tk-3dsmax"]
+        SUPPORTED_ENGINES = ["tk-nuke", "tk-maya", "tk-3dsmax", "tk-alias", "tk-vred"]
 
-        if self.engine.has_ui and not hasattr(sgtk, "_tk_multi_workfiles2_launch_at_startup"):
+        if not hasattr(sgtk, "_tk_multi_workfiles2_launch_at_startup"):
 
             # this is the very first time we have run this application
             sgtk._tk_multi_workfiles2_launch_at_startup = True
 
-            if self.get_setting('launch_at_startup'):
+            if self.get_setting("launch_at_startup"):
                 # show the file manager UI
                 if self.engine.name in SUPPORTED_ENGINES:
                     # use a single-shot timer to show the open dialog to allow everything to
                     # finish being set up first:
                     from sgtk.platform.qt import QtCore
+
                     QtCore.QTimer.singleShot(200, self.show_file_open_dlg)
                 else:
-                    self.log_warning("Sorry, the launch at startup option is currently not supported "
-                                     "in this engine! You can currently only use it with the following "
-                                     "engines: %s" % ", ".join(SUPPORTED_ENGINES))
+                    self.log_warning(
+                        "Sorry, the launch at startup option is currently not supported "
+                        "in this engine! You can currently only use it with the following "
+                        "engines: %s" % ", ".join(SUPPORTED_ENGINES)
+                    )
 
     def destroy_app(self):
         """
@@ -103,17 +126,23 @@ class MultiWorkFiles(sgtk.platform.Application):
         """
         self.log_debug("Destroying tk-multi-workfiles2")
 
-    def show_file_open_dlg(self):
+    def show_file_open_dlg(self, use_modal_dialog=False):
         """
         Launch the main File Open UI
         """
-        self._tk_multi_workfiles.WorkFiles.show_file_open_dlg()
+        self._tk_multi_workfiles.WorkFiles.show_file_open_dlg(use_modal_dialog)
 
-    def show_file_save_dlg(self):
+    def show_context_change_dlg(self, use_modal_dialog=False):
+        """
+        Launch the main File Open UI
+        """
+        self._tk_multi_workfiles.WorkFiles.show_context_change_dlg(use_modal_dialog)
+
+    def show_file_save_dlg(self, use_modal_dialog=False):
         """
         Launch the main File Save UI
         """
-        self._tk_multi_workfiles.WorkFiles.show_file_save_dlg()
+        self._tk_multi_workfiles.WorkFiles.show_file_save_dlg(use_modal_dialog)
 
     @property
     def context_change_allowed(self):
@@ -152,11 +181,10 @@ class MultiWorkFiles(sgtk.platform.Application):
         :returns: An RGBA tuple of int (0-255).
         """
         color = sgtk.platform.qt.QtGui.QColor(self.style_constants["SG_ALERT_COLOR"])
-        return color.red(), color.green(), color.blue(), color.alpha()
+        return color.red(), color.green(), color.blue()
 
 
 class DebugWrapperShotgun(object):
-
     def __init__(self, sg_instance, log_fn):
         self._sg = sg_instance
         self._log_fn = log_fn

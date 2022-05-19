@@ -18,14 +18,13 @@ from sgtk.platform.qt import QtGui
 
 from .actions.file_action_factory import FileActionFactory
 from .actions.action import SeparatorAction, ActionGroup
-from .actions.file_action import FileAction
 from .actions.new_file_action import NewFileAction
 
 from .file_form_base import FileFormBase
 from .ui.file_open_form import Ui_FileOpenForm
 
 from .work_area import WorkArea
-from .util import  get_template_user_keys
+from .util import get_template_user_keys
 
 
 class FileOpenForm(FileFormBase):
@@ -33,63 +32,52 @@ class FileOpenForm(FileFormBase):
     UI for opening a publish or work file.  Presents a list of available files to the user
     so that they can choose one to open in addition to any other user-definable actions.
     """
-    @property
-    def exit_code(self):
-        return self._exit_code
 
     def __init__(self, parent=None):
         """
         Construction
         """
-        app = sgtk.platform.current_bundle()
-
-        FileFormBase.__init__(self, parent)
-
-        self._exit_code = QtGui.QDialog.Rejected
+        super(FileOpenForm, self).__init__(parent)
 
         self._new_file_env = None
         self._default_open_action = None
-
-        self._navigating = False
 
         try:
             # doing this inside a try-except to ensure any exceptions raised don't
             # break the UI and crash the dcc horribly!
             self._do_init()
-        except:
-            app.log_exception("Unhandled exception during File Open Form construction!")
+        except Exception:
+            app = sgtk.platform.current_bundle()
+            app.log_exception("Unhandled exception during Form construction!")
+
+    def init_ui_file(self):
+        """
+        Returns the ui class to use, required by the base class.
+        """
+        return Ui_FileOpenForm()
 
     def _do_init(self):
-        """
-        """
-        app = sgtk.platform.current_bundle()
-
-        # set up the UI
-        self._ui = Ui_FileOpenForm()
-        self._ui.setupUi(self)
+        """ """
+        super(FileOpenForm, self)._do_init()
 
         # start by disabling buttons:
+        self._ui.change_ctx_btn.hide()
         self._ui.open_btn.setEnabled(False)
         self._ui.open_options_btn.setEnabled(False)
-
         # tmp - disable some controls that currently don't work!
         self._ui.open_options_btn.hide()
 
-        # hook up signals on controls:
-        self._ui.cancel_btn.clicked.connect(self._on_cancel)
         self._ui.open_btn.clicked.connect(self._on_open)
         self._ui.new_file_btn.clicked.connect(self._on_new_file)
 
-        self._ui.browser.file_context_menu_requested.connect(self._on_browser_context_menu_requested)
+        self._ui.browser.file_context_menu_requested.connect(
+            self._on_browser_context_menu_requested
+        )
 
-        self._ui.browser.create_new_task.connect(self._on_create_new_task)
         self._ui.browser.file_selected.connect(self._on_browser_file_selected)
-        self._ui.browser.file_double_clicked.connect(self._on_browser_file_double_clicked)
-        self._ui.browser.work_area_changed.connect(self._on_browser_work_area_changed)
-        self._ui.browser.step_filter_changed.connect(self._apply_step_filtering)
-
-        self._ui.nav.navigate.connect(self._on_navigate)
-        self._ui.nav.home_clicked.connect(self._on_navigate_home)
+        self._ui.browser.file_double_clicked.connect(
+            self._on_browser_file_double_clicked
+        )
 
         # initialize the browser widget:
         self._ui.browser.show_user_filtering_widget(self._is_using_user_sandboxes())
@@ -99,9 +87,9 @@ class FileOpenForm(FileFormBase):
             self._file_model,
         )
         current_file = self._get_current_file()
+        app = sgtk.platform.current_bundle()
         self._ui.browser.select_work_area(app.context)
         self._ui.browser.select_file(current_file, app.context)
-
 
     def _is_using_user_sandboxes(self):
         """
@@ -111,28 +99,14 @@ class FileOpenForm(FileFormBase):
         """
         app = sgtk.platform.current_bundle()
 
-        for t in app.sgtk.templates.itervalues():
+        for t in app.sgtk.templates.values():
             if get_template_user_keys(t):
                 return True
 
         return False
 
-
-    def closeEvent(self, event):
-        """
-        Called when the widget is being closed - do as much as possible here to help the GC
-
-        :param event:   The close event
-        """
-        # clean up the browser:
-        self._ui.browser.shut_down()
-
-        # be sure to call the base clase implementation
-        return FileFormBase.closeEvent(self, event)
-
     def _on_browser_file_selected(self, file, env):
-        """
-        """
+        """ """
         self._on_selected_file_changed(file, env)
         self._update_new_file_btn(env)
 
@@ -140,61 +114,19 @@ class FileOpenForm(FileFormBase):
         """
         Slot triggered whenever the work area is changed in the browser.
         """
-        env_details = None
-        if entity:
-            # (AD) - we need to build a context and construct the environment details
-            # instance for it but this may be slow enough that we should cache it!
-            # Keep an eye on it and consider threading if it's noticeably slow!
-            app = sgtk.platform.current_bundle()
-            context = app.sgtk.context_from_entity_dictionary(entity)
-            try:
-                env_details = WorkArea(context)
-            except sgtk.TankError:
-                # We can ignore the error reporting here. The browser is already
-                # updating it's various file views and they will display the same
-                # error. Which is good, because file open dialog doesn't have a
-                # widget dedicated to error reporting.
-                env_details = None
-
+        env_details = super(FileOpenForm, self)._on_browser_work_area_changed(
+            entity, breadcrumbs
+        )
         self._update_new_file_btn(env_details)
 
-        if not self._navigating:
-            destination_label = breadcrumbs[-1].label if breadcrumbs else "..."
-            self._ui.nav.add_destination(destination_label, breadcrumbs)
-        self._ui.breadcrumbs.set(breadcrumbs)
-
     def _on_browser_file_double_clicked(self, file, env):
-        """
-        """
+        """ """
         self._on_selected_file_changed(file, env)
         self._update_new_file_btn(env)
         self._on_open()
 
-    def _on_navigate(self, breadcrumb_trail):
-        """
-        """
-        if not breadcrumb_trail:
-            return
-
-        # awesome, just navigate to the breadcrumbs:
-        self._ui.breadcrumbs.set(breadcrumb_trail)
-        self._navigating = True
-        try:
-            self._ui.browser.navigate_to(breadcrumb_trail)
-        finally:
-            self._navigating = False
-
-    def _on_navigate_home(self):
-        """
-        Navigate to the current work area
-        """
-        # navigate to the current work area in the browser:
-        app = sgtk.platform.current_bundle()
-        self._ui.browser.select_work_area(app.context)
-
     def _on_selected_file_changed(self, file, env):
-        """
-        """
+        """ """
         # get the available actions for this file:
         file_actions = self._get_available_file_actions(file, env)
 
@@ -227,8 +159,7 @@ class FileOpenForm(FileFormBase):
             self._ui.open_options_btn.setEnabled(False)
 
     def _update_new_file_btn(self, env):
-        """
-        """
+        """ """
         if env and NewFileAction.can_do_new_file(env):
             self._new_file_env = env
         else:
@@ -236,8 +167,7 @@ class FileOpenForm(FileFormBase):
         self._ui.new_file_btn.setEnabled(self._new_file_env is not None)
 
     def _on_browser_context_menu_requested(self, file, env, pnt):
-        """
-        """
+        """ """
         if not file:
             return
 
@@ -272,7 +202,7 @@ class FileOpenForm(FileFormBase):
             env,
             self._file_model,
             workfiles_visible=self._ui.browser.work_files_visible,
-            publishes_visible=self._ui.browser.publishes_visible
+            publishes_visible=self._ui.browser.publishes_visible,
         ).get_actions(file_item)
         return file_actions
 
@@ -297,13 +227,14 @@ class FileOpenForm(FileFormBase):
                 add_separators = True
             else:
                 q_action = QtGui.QAction(action.label, menu)
-                q_action.triggered[()].connect(lambda a=action, checked=False: self._perform_action(a))
+                q_action.triggered[()].connect(
+                    lambda a=action, checked=False: self._perform_action(a)
+                )
                 menu.addAction(q_action)
                 add_separators = True
 
     def _on_open(self):
-        """
-        """
+        """ """
         if not self._default_open_action:
             return
 
@@ -311,17 +242,11 @@ class FileOpenForm(FileFormBase):
         # anything after this call!
         self._perform_action(self._default_open_action)
 
-    def _on_cancel(self):
-        """
-        Called when the cancel button is clicked
-        """
-        self._exit_code = QtGui.QDialog.Rejected
-        self.close()
-
     def _on_new_file(self):
-        """
-        """
-        if not self._new_file_env or not NewFileAction.can_do_new_file(self._new_file_env):
+        """ """
+        if not self._new_file_env or not NewFileAction.can_do_new_file(
+            self._new_file_env
+        ):
             return
 
         new_file_action = NewFileAction(self._new_file_env)
@@ -329,29 +254,3 @@ class FileOpenForm(FileFormBase):
         # perform the action - this may result in the UI being closed so don't do
         # anything after this call!
         self._perform_action(new_file_action)
-
-    def _perform_action(self, action):
-        """
-        """
-        if not action:
-            return
-
-        # some debug:
-        app = sgtk.platform.current_bundle()
-        if isinstance(action, FileAction) and action.file:
-            app.log_debug("Performing action '%s' on file '%s, v%03d'"
-                          % (action.label, action.file.name, action.file.version))
-        else:
-            app.log_debug("Performing action '%s'" % action.label)
-
-        # execute the action:
-        close_dialog = action.execute(self)
-
-        # if this is successful then close the form:
-        if close_dialog:
-            self._exit_code = QtGui.QDialog.Accepted
-            self.close()
-        else:
-            # refresh all models in case something changed as a result of
-            # the action (especially important with custom actions):
-            self._refresh_all_async()

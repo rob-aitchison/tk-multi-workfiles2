@@ -13,6 +13,8 @@ import hou
 
 import sgtk
 
+from tank_vendor import six
+
 HookClass = sgtk.get_hook_baseclass()
 
 
@@ -20,7 +22,17 @@ class SceneOperation(HookClass):
     """
     Hook called to perform an operation with the current scene
     """
-    def execute(self, operation, file_path, context, parent_action, file_version, read_only, **kwargs):
+
+    def execute(
+        self,
+        operation,
+        file_path,
+        context,
+        parent_action,
+        file_version,
+        read_only,
+        **kwargs
+    ):
         """
         Main hook entry point
 
@@ -59,14 +71,14 @@ class SceneOperation(HookClass):
             return str(hou.hipFile.name())
         elif operation == "open":
             # give houdini forward slashes
-            file_path = file_path.replace(os.path.sep, '/')
-            hou.hipFile.load(file_path.encode("utf-8"))
+            file_path = file_path.replace(os.path.sep, "/")
+            hou.hipFile.load(six.ensure_str(file_path))
         elif operation == "save":
             hou.hipFile.save()
         elif operation == "save_as":
             # give houdini forward slashes
-            file_path = file_path.replace(os.path.sep, '/')
-            hou.hipFile.save(str(file_path.encode("utf-8")))
+            file_path = file_path.replace(os.path.sep, "/")
+            hou.hipFile.save(six.ensure_str(file_path))
         elif operation == "reset":
             hou.hipFile.clear()
             return True
